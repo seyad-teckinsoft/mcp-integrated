@@ -1,0 +1,17 @@
+# Creating static IP address
+ cat /etc/dhcpcd.conf
+interface eth0
+static ip_address=192.168.250.4/24
+static routers=192.168.250.1
+static domain_name_servers=192.168.250.1 8.8.8.8
+
+#compile  modbus server code 
+ gcc modbus_server.c -o modbus_server -lmodbus
+
+
+Ethernet/IP -web url -remote veiw(local- pysical connection)
+opc-UA
+OPCDA
+
+pmain - using pymodbus module without gui
+main  - gui + libmodbus
