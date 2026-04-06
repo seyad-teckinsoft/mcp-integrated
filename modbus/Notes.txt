@@ -31,3 +31,13 @@ sudo nmcli connection modify "Wired connection 1" ipv4.method auto
 sudo nmcli connection modify "Wired connection 1" ipv4.addresses ""
 sudo nmcli connection up "Wired connection 1"
 sudo systemctl restart NetworkManager
+
+###
+Modbus data type 
+1. Coil - Bitwise data (0/1) - Direction bi
+2. Discrete Inputs - Bitwise datatype only used for (read by PLC).
+3. Holding Register - 16 bit datatype (16)size -Direction bi.
+4. Input Register - 16 bit data type only used for read by PLC.
+
+Port -  502 Most widly used (1502 to avoid used privillage warnings).
+Modbus slave ip - IP address of the slave device.
