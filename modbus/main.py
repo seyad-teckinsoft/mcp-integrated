@@ -1,65 +1,97 @@
 import sys
-import ctypes
+import threading
 from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QLabel
+from pymodbus.server.sync import StartTcpServer
+from pymodbus.datastore import ModbusSequentialDataBlock
+from pymodbus.datastore import ModbusSlaveContext, ModbusServerContext
 
-# Load libmodbus
-lib = ctypes.CDLL("/lib/aarch64-linux-gnu/libmodbus.so")
+CO = 1 # Coils
+DI = 2 # Discrete Inputs
+HR = 3 # Holding Registers
+IR = 4 # Input Registers
 
-# Function prototypes
-lib.modbus_new_tcp.restype = ctypes.c_void_p
-lib.modbus_connect.argtypes = [ctypes.c_void_p]
-lib.modbus_read_bits.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.POINTER(ctypes.c_uint8)]
-lib.modbus_write_bit.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+# -------------------------------
+# Shared Modbus Data Store
+# -------------------------------
+store = ModbusSlaveContext(
+    co=ModbusSequentialDataBlock(0, [0]*10),
+    di=ModbusSequentialDataBlock(0, [0]*10),
+    hr=ModbusSequentialDataBlock(0, [0]*10),
+    ir=ModbusSequentialDataBlock(0, [0]*10)
+)
 
-class ModbusClient:
-    def __init__(self, ip="127.0.0.1", port=502):
-        self.ctx = lib.modbus_new_tcp(ip.encode('utf-8'), port)
-        if lib.modbus_connect(self.ctx) == -1:
-            raise Exception("Connection failed")
+context = ModbusServerContext(slaves=store, single=True)
 
-    def read_coils(self, start, count):
-        arr = (ctypes.c_uint8 * count)()
-        lib.modbus_read_bits(self.ctx, start, count, arr)
-        return list(arr)
+# -------------------------------
+# Start Modbus Server in Thread
+# -------------------------------
+def run_server():
+    StartTcpServer(context, address=("0.0.0.0", 1502))
 
-    def write_coil(self, addr, value):
-        lib.modbus_write_bit(self.ctx, addr, int(value))
+server_thread = threading.Thread(target=run_server, daemon=True)
+server_thread.start()
 
 
+# -------------------------------
+# PyQt GUI
+# -------------------------------
 class App(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.modbus = ModbusClient()
+        self.setWindowTitle("HMI Modbus Panel")
 
-        self.label = QLabel("States: ---")
+        self.label = QLabel("HR0: 0000000000000000")
 
-        self.buttons = []
         layout = QVBoxLayout()
-
         layout.addWidget(self.label)
 
+        self.value = 0
+
+        self.buttons = []
+
         for i in range(5):
-            btn = QPushButton(f"Toggle Coil {i}")
-            btn.clicked.connect(lambda _, x=i: self.toggle_coil(x))
-            self.buttons.append(btn)
+            btn = QPushButton(f"Button {i}")
+            btn.setCheckable(True)
+
+            btn.pressed.connect(lambda x=i: self.set_bit(x))
+            btn.released.connect(lambda x=i: self.clear_bit(x))
+
             layout.addWidget(btn)
+            self.buttons.append(btn)
 
         self.setLayout(layout)
 
-        self.timer = self.startTimer(1000)
+        # Timer to refresh from PLC writes
+        self.timer = self.startTimer(500)
 
-    def toggle_coil(self, index):
-        states = self.modbus.read_coils(0, 5)
-        new_val = not states[index]
-        self.modbus.write_coil(index, new_val)
+    # ---------------------------
+    # Button → Update Register
+    # ---------------------------
+    def set_bit(self, bit):
+        self.value |= (1 << bit)
+        self.update_register()
 
+    def clear_bit(self, bit):
+        self.value &= ~(1 << bit)
+        self.update_register()
+
+    def update_register(self):
+        context[0].setValues(IR, 0, [self.value])  
+        self.label.setText(f"HR0: {self.value:016b}")
+
+    # ---------------------------
+    # Read from PLC (if PLC writes)
+    # ---------------------------
     def timerEvent(self, event):
-        states = self.modbus.read_coils(0, 5)
-        text = " | ".join([f"{i}:{'ON' if s else 'OFF'}" for i, s in enumerate(states)])
-        self.label.setText(text)
+        val = context[0].getValues(HR, 0, count=1)[0]
+        self.value = val
+        self.label.setText(f"HR0: {self.value:016b}")
 
 
+# -------------------------------
+# Run App
+# -------------------------------
 app = QApplication(sys.argv)
 window = App()
 window.show()
